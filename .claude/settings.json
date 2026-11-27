@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose *)",
+      "Bash(docker build *)",
+      "Bash(docker run *)",
+      "Bash(docker ps *)",
+      "Bash(docker logs *)",
+      "Bash(docker images *)",
+      "Bash(make *)",
+      "Bash(curl http://localhost*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)"
+    ],
+    "deny": [
+      "Bash(docker system prune*)",
+      "Bash(docker volume prune*)",
+      "Bash(docker volume rm*)",
+      "Bash(git push*)",
+      "Bash(sudo *)"
+    ]
+  }
+}

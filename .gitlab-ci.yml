@@ -1,0 +1,119 @@
+# GitLab CI: lint -> test -> build -> deploy (manual).
+# Deployment settings live in ansible/group_vars/all.yml. CI variables can override:
+#   SSH_PRIVATE_KEY       private key for the target host (type: variable, masked)
+#   ANSIBLE_INVENTORY     inventory file, default ansible/inventory.ini
+#   RECREATE_APP_ONLY     "true" -> rebuild backend+frontend only, database untouched
+#   RUN_IMPORT            "true" -> run the data import after deploying
+#   ANSIBLE_VAULT_PASSWORD  vault password if all.yml contains vaulted values
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+.python:
+  image: python:3.12-slim
+  cache:
+    key: pip
+    paths: [.cache/pip]
+
+backend-lint:
+  extends: .python
+  stage: lint
+  script:
+    - pip install ruff
+    - ruff check backend
+
+ansible-syntax:
+  extends: .python
+  stage: lint
+  script:
+    - pip install ansible-core
+    - cd ansible
+    - ansible-galaxy collection install -r requirements.yml
+    - ansible-playbook site.yml --syntax-check
+
+ansible-lint:
+  extends: .python
+  stage: lint
+  allow_failure: true   # style findings should not block the pipeline
+  script:
+    - pip install ansible-core ansible-lint
+    - cd ansible
+    - ansible-galaxy collection install -r requirements.yml
+    - ansible-lint site.yml
+
+backend-test:
+  extends: .python
+  stage: test
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: causalomics_test
+    POSTGRES_USER: ci
+    POSTGRES_PASSWORD: ci
+    TEST_DATABASE_URL: postgresql+psycopg://ci:ci@postgres:5432/causalomics_test
+  script:
+    - cd backend
+    - pip install -r requirements-dev.txt
+    - pytest --junitxml=report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: backend/report.xml
+
+frontend-build:
+  stage: test
+  image: node:20-alpine
+  cache:
+    key: npm
+    paths: [frontend/node_modules]
+  script:
+    - cd frontend
+    - if [ -f package-lock.json ]; then npm ci; else npm install; fi
+    - npm run build
+  artifacts:
+    paths: [frontend/dist]
+    expire_in: 1 week
+
+docker-build:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  script:
+    - docker compose build
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+deploy:
+  extends: .python
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+  variables:
+    ANSIBLE_HOST_KEY_CHECKING: "False"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends openssh-client git
+    - pip install ansible-core
+    - eval "$(ssh-agent -s)"
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - cd ansible
+    - ansible-galaxy collection install -r requirements.yml
+    - if [ -n "$ANSIBLE_VAULT_PASSWORD" ]; then echo "$ANSIBLE_VAULT_PASSWORD" > .vault_pass; export ANSIBLE_VAULT_PASSWORD_FILE=.vault_pass; fi
+  script:
+    - >-
+      ansible-playbook -i "${ANSIBLE_INVENTORY:-inventory.ini}" site.yml
+      -e source_mode=git -e git_version="$CI_COMMIT_SHA"
+      ${RECREATE_APP_ONLY:+-e recreate_app_only=$RECREATE_APP_ONLY}
+      ${RUN_IMPORT:+-e run_import=$RUN_IMPORT}
+  after_script:
+    - rm -f ansible/.vault_pass

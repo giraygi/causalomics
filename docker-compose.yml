@@ -1,0 +1,94 @@
+# Start the application:            docker compose up --build
+# Start it and load example data:   docker compose --profile import up --build
+# Every value has a development default; override them in .env (see .env.example).
+
+name: ${COMPOSE_PROJECT_NAME:-causalomics}
+
+x-project-labels: &project-labels
+  com.causalomics.project: ${COMPOSE_PROJECT_NAME:-causalomics}
+
+x-app-credentials: &app-credentials
+  APP_USERNAME: ${APP_USERNAME:-admin}
+  APP_PASSWORD: ${APP_PASSWORD:-admin}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-causalomics}
+      POSTGRES_USER: ${POSTGRES_USER:-causalomics}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-causalomics}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    labels: *project-labels
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      target: runtime
+      labels: *project-labels
+    image: ${COMPOSE_PROJECT_NAME:-causalomics}-backend:latest
+    environment:
+      <<: *app-credentials
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-causalomics}:${POSTGRES_PASSWORD:-causalomics}@db:5432/${POSTGRES_DB:-causalomics}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-please-0123456789abcdef}
+      TOKEN_EXPIRE_MINUTES: ${TOKEN_EXPIRE_MINUTES:-120}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-8001}:8000"
+    labels: *project-labels
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      labels: *project-labels
+    image: ${COMPOSE_PROJECT_NAME:-causalomics}-frontend:latest
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    labels: *project-labels
+    restart: unless-stopped
+
+  # One-off data import: generates/reads example data and loads it through the API.
+  # Run on demand:  docker compose --profile import run --rm importer [--force]
+  importer:
+    build:
+      context: ./backend
+      target: runtime
+      labels: *project-labels
+    image: ${COMPOSE_PROJECT_NAME:-causalomics}-backend:latest
+    entrypoint: ["python", "-m", "app.importer"]
+    environment:
+      <<: *app-credentials
+      IMPORT_API_URL: http://backend:8000/api
+      IMPORT_DATA_DIR: /data
+      IMPORT_DATASET_NAME: ${IMPORT_DATASET_NAME:-example-dataset}
+    volumes:
+      - ./data/sample:/data:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    labels: *project-labels
+    profiles: ["import"]
+    restart: "no"
+
+volumes:
+  pgdata:
+    labels: *project-labels
+
+networks:
+  default:
+    labels: *project-labels

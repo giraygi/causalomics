@@ -1,0 +1,55 @@
+---
+# =============================================================================
+# Central configuration for deploy / import / clean_project.
+# Sensitive values: encrypt with `ansible-vault encrypt_string '<value>' --name '<var>'`
+# and paste the result here (CI passes the vault password, see .gitlab-ci.yml).
+# =============================================================================
+
+# --- Project -------------------------------------------------------------------
+project_name: causalomics                 # docker compose project name + resource label
+project_label_key: com.causalomics.project
+
+# --- Source of the application ------------------------------------------------
+# inplace: use the repository the playbook is run from (localhost demo, no copy)
+# git:     clone/update git_repo at git_version into deploy_dir (remote servers, CI)
+# local:   copy the repository from the control node into deploy_dir
+source_mode: inplace
+git_repo: "https://gitlab.com/CHANGE-ME/causalomics-de.git"
+git_version: main
+deploy_dir: "{{ ansible_env.HOME }}/causalomics-de"
+local_source_dir: "{{ playbook_dir | dirname }}"
+local_source_items: [backend, frontend, data, docker-compose.yml]
+# directory that holds docker-compose.yml on the target (derived, normally not changed)
+app_dir: "{{ local_source_dir if source_mode == 'inplace' else deploy_dir }}"
+
+# --- Host preparation ---------------------------------------------------------
+docker_install: false                     # true: install Docker Engine + compose plugin (Debian/Ubuntu, needs sudo)
+
+# --- Ports --------------------------------------------------------------------
+frontend_port: 8080
+backend_port: 8001
+
+# --- Database -----------------------------------------------------------------
+postgres_db: causalomics
+postgres_user: causalomics
+postgres_password: change-me              # vault this
+
+# --- Application login --------------------------------------------------------
+app_username: admin
+app_password: change-me                   # vault this
+jwt_secret: change-me-to-a-long-random-string   # vault this
+token_expire_minutes: 120
+
+# --- Behaviour switches -------------------------------------------------------
+# true: rebuild and recreate ONLY backend and frontend; the database container and
+# its volume are not touched, so all uploaded data and results are kept.
+recreate_app_only: false
+
+# true: run the data import service after deploying (also: --tags import)
+run_import: false
+import_dataset_name: example-dataset
+import_force: false                       # import again even if the dataset exists
+
+# clean_project: what to remove besides containers and networks
+clean_remove_images: true                 # images built for this project (label-filtered)
+clean_remove_volumes: false               # true deletes the database volume = ALL DATA

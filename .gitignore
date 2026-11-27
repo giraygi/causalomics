@@ -1,0 +1,21 @@
+# secrets / local config
+.env
+*.retry
+ansible/.vault_pass*
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+backend/report.xml
+
+# Node
+node_modules/
+frontend/dist/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

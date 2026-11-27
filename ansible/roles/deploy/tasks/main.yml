@@ -1,0 +1,70 @@
+---
+- name: Install Docker Engine and the compose plugin
+  ansible.builtin.include_tasks: install_docker.yml
+  when: docker_install | bool
+
+- name: Check that Docker and the compose plugin are available
+  ansible.builtin.command: docker compose version
+  changed_when: false
+
+- name: Create deployment directory
+  ansible.builtin.file:
+    path: "{{ deploy_dir }}"
+    state: directory
+    mode: "0755"
+  when: source_mode != "inplace"
+
+- name: Fetch application source from git
+  ansible.builtin.git:
+    repo: "{{ git_repo }}"
+    dest: "{{ deploy_dir }}"
+    version: "{{ git_version }}"
+    force: true
+  when: source_mode == "git"
+
+- name: Copy application source from the control node
+  ansible.builtin.copy:
+    src: "{{ local_source_dir }}/{{ item }}"
+    dest: "{{ deploy_dir }}/"
+    mode: preserve
+  loop: "{{ local_source_items }}"
+  when: source_mode == "local"
+
+- name: Write the environment file read by docker compose
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_dir }}/.env"
+    mode: "0600"
+
+- name: Deploy the full stack (database, backend, frontend)
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_dir }}"
+    project_name: "{{ project_name }}"
+    build: always
+    state: present
+    remove_orphans: true
+    wait: true
+    wait_timeout: 600
+  when: not (recreate_app_only | bool)
+
+- name: Recreate only backend and frontend (database container and volume untouched)
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_dir }}"
+    project_name: "{{ project_name }}"
+    services: [backend, frontend]
+    dependencies: false
+    build: always
+    recreate: always
+    state: present
+    wait: true
+    wait_timeout: 600
+  when: recreate_app_only | bool
+
+- name: Wait until the API answers through the frontend proxy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ frontend_port }}/api/health"
+    status_code: 200
+  register: health
+  until: health.status == 200
+  retries: 30
+  delay: 5

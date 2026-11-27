@@ -1,0 +1,17 @@
+---
+# Runs the importer container, which loads example data through the REST API.
+# Executed when run_import is true, or when the play is run with --tags import.
+- name: Run the data import service
+  ansible.builtin.command:
+    cmd: >-
+      docker compose --project-name {{ project_name }} --profile import
+      run --rm importer {{ '--force' if (import_force | bool) else '' }}
+    chdir: "{{ app_dir }}"
+  register: import_result
+  changed_when: "'skipping' not in import_result.stdout"
+  when: (run_import | bool) or ('import' in ansible_run_tags)
+
+- name: Show importer output
+  ansible.builtin.debug:
+    var: import_result.stdout_lines
+  when: import_result is not skipped

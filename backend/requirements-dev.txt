@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8,<9
+statsmodels>=0.14,<1.0
+ruff>=0.6

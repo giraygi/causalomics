@@ -1,0 +1,29 @@
+---
+# Debian/Ubuntu: Docker's official convenience script installs Engine + compose plugin.
+- name: Download the Docker installation script
+  ansible.builtin.get_url:
+    url: https://get.docker.com
+    dest: /tmp/get-docker.sh
+    mode: "0755"
+
+- name: Install Docker Engine and the compose plugin
+  ansible.builtin.command: sh /tmp/get-docker.sh
+  args:
+    creates: /usr/bin/docker
+  become: true
+
+- name: Install PyYAML (needed by community.docker.docker_compose_v2)
+  ansible.builtin.apt:
+    name: python3-yaml
+    state: present
+  become: true
+
+- name: Allow the deploy user to use Docker
+  ansible.builtin.user:
+    name: "{{ ansible_user_id }}"
+    groups: docker
+    append: true
+  become: true
+
+- name: Reconnect so the new group membership applies
+  ansible.builtin.meta: reset_connection

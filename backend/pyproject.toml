@@ -1,0 +1,16 @@
+[project]
+name = "causalomics-de"
+version = "1.0.0"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "B"]
+ignore = ["B008"]  # FastAPI's Depends()/File() in defaults is idiomatic
