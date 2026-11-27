@@ -56,9 +56,10 @@ All settings have development defaults. For anything beyond local use, copy
 reference group, start the analysis. The table can be sorted by any column, filtered
 by gene name and adjusted p-value, and downloaded as CSV.
 
-**Network tab** – upload (or select) a gene–gene edge list, choose thresholds
-(adjusted p, |log2 FC|) and display the significant genes. Node colour: blue = lower,
-red = higher in the comparison group; click a node for its values.
+**Network tab** – select a finished analysis, then upload or select a gene–gene
+interaction list for that analysis. Lists from older imports remain available to all
+analyses. Choose thresholds (adjusted p, |log2 FC|) and display significant genes.
+Node colour: blue = lower, red = higher in the comparison group; click a node for its values.
 
 ### Input formats
 
@@ -112,8 +113,8 @@ curl -s -H "$AUTH" "$API/analyses/$JOB/results?format=csv" | head
 | POST | `/api/auth/login` | form `username`, `password` → bearer token |
 | POST | `/api/datasets` | multipart `expression`, `annotation`, optional `name` |
 | GET | `/api/datasets` | list datasets |
-| POST | `/api/edges` | multipart `file`, optional `name` |
-| GET | `/api/edges` | list edge lists |
+| POST | `/api/edges` | multipart `file`, optional `name` and `analysis_id` |
+| GET | `/api/edges` | list edge lists; optional `analysis_id` filters to that analysis and legacy shared lists |
 | POST | `/api/analyses` | `{dataset_id, reference_group?, log_transform?}` → 202 |
 | GET | `/api/analyses/{id}` | status: queued / running / done / failed |
 | GET | `/api/analyses/{id}/results` | `?format=json\|csv` |

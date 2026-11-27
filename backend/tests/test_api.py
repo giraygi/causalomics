@@ -117,6 +117,46 @@ def test_upload_analyse_results_network(client, auth_headers, sim_files):
     assert len(network["edges"]) > 0
 
 
+def test_edge_lists_are_scoped_to_analysis(client, auth_headers, sim_files):
+    dataset = _upload_dataset(client, auth_headers, sim_files).json()
+    analysis_ids = []
+    for _ in range(2):
+        response = client.post(
+            "/api/analyses",
+            headers=auth_headers,
+            json={"dataset_id": dataset["id"], "reference_group": "control"},
+        )
+        assert response.status_code == 202, response.text
+        analysis_ids.append(response.json()["id"])
+
+    edge_lists = []
+    for analysis_id in analysis_ids:
+        response = client.post(
+            "/api/edges",
+            headers=auth_headers,
+            files={"file": sim_files["edges"]},
+            data={"name": "interactions", "analysis_id": analysis_id},
+        )
+        assert response.status_code == 201, response.text
+        edge_lists.append(response.json())
+
+    assert edge_lists[0]["id"] != edge_lists[1]["id"]
+    assert [edge_list["name"] for edge_list in edge_lists] == ["interactions", "interactions"]
+    for analysis_id, edge_list in zip(analysis_ids, edge_lists, strict=True):
+        assert edge_list["analysis_id"] == analysis_id
+        listed = client.get(
+            "/api/edges", headers=auth_headers, params={"analysis_id": analysis_id}
+        ).json()
+        assert [item["id"] for item in listed] == [edge_list["id"]]
+
+    response = client.get(
+        f"/api/analyses/{analysis_ids[1]}/network",
+        headers=auth_headers,
+        params={"edge_list_id": edge_lists[0]["id"]},
+    )
+    assert response.status_code == 404
+
+
 # --------------------------------------------------------------------------- #
 # Error handling
 # --------------------------------------------------------------------------- #

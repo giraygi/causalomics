@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -28,6 +28,22 @@ def init_db() -> None:
     from app import models  # noqa: F401  (register tables)
 
     Base.metadata.create_all(engine)
+    columns = {column["name"] for column in inspect(engine).get_columns("edge_lists")}
+    if "analysis_id" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE edge_lists ADD COLUMN analysis_id "
+                    "VARCHAR(36) REFERENCES analyses(id) ON DELETE CASCADE"
+                )
+            )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_edge_lists_analysis_id "
+                "ON edge_lists (analysis_id)"
+            )
+        )
 
 
 def get_session() -> Iterator[Session]:

@@ -15,7 +15,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app import analysis as de
@@ -138,18 +138,29 @@ async def upload_edges(
     settings: SettingsDep,
     file: Annotated[UploadFile, File(description="Columns: gene_a, gene_b[, score]")],
     name: Annotated[str | None, Form()] = None,
+    analysis_id: Annotated[str | None, Form()] = None,
 ):
     text = await _read_upload(file, settings)
     try:
         edges_df = load_edges(text.encode())
     except de.AnalysisInputError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from None
-    return services.store_edge_list(session, name or file.filename or "edges", edges_df)
+    if analysis_id is not None:
+        _get_or_404(session, Analysis, analysis_id)
+    return services.store_edge_list(
+        session, name or file.filename or "edges", edges_df, analysis_id=analysis_id
+    )
 
 
 @protected.get("/edges", response_model=list[schemas.EdgeListOut], tags=["network"])
-def list_edge_lists(session: SessionDep):
-    return session.scalars(select(EdgeList).order_by(EdgeList.created_at.desc())).all()
+def list_edge_lists(session: SessionDep, analysis_id: str | None = None):
+    query = select(EdgeList).order_by(EdgeList.created_at.desc())
+    if analysis_id is not None:
+        _get_or_404(session, Analysis, analysis_id)
+        query = query.where(
+            or_(EdgeList.analysis_id == analysis_id, EdgeList.analysis_id.is_(None))
+        )
+    return session.scalars(query).all()
 
 
 # --------------------------------------------------------------------------- #
@@ -244,5 +255,7 @@ def get_network(
     min_abs_lfc: Annotated[float, Query(ge=0)] = 1.0,
 ):
     _finished_analysis(session, analysis_id)
-    _get_or_404(session, EdgeList, edge_list_id)
+    edge_list = _get_or_404(session, EdgeList, edge_list_id)
+    if edge_list.analysis_id not in (None, analysis_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Edge list not found for this analysis")
     return services.build_network(session, analysis_id, edge_list_id, padj, min_abs_lfc)

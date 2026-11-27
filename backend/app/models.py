@@ -38,6 +38,9 @@ class EdgeList(Base):
     __tablename__ = "edge_lists"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analysis_id: Mapped[str | None] = mapped_column(
+        ForeignKey("analyses.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     name: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     n_edges: Mapped[int] = mapped_column(Integer)
