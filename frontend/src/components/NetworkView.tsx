@@ -205,6 +205,12 @@ export default function NetworkView({ analysis, visible }: Props) {
               ))}
             </select>
           </label>
+          {edgeLists.length === 0 && (
+            <p className="muted small">
+              Interaction lists belong to an analysis. Select the analysis that owns a saved list
+              in the Analysis tab, or upload a new one here.
+            </p>
+          )}
         </section>
       ) : (
         <section className="card">

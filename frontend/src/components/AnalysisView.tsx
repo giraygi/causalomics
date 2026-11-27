@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ApiError, api, errorMessage } from "../api";
-import type { Analysis, Dataset, GeneResult } from "../types";
+import type { Analysis, Dataset, EdgeList, GeneResult } from "../types";
 import ResultsTable from "./ResultsTable";
 
 interface Props {
@@ -56,10 +56,32 @@ export default function AnalysisView({ analysis, onAnalysisChange }: Props) {
       try {
         const list = await loadDatasets();
         if (cancelled) return;
+        let preferredDatasetId = list[0]?.id ?? "";
+        try {
+          const [allAnalyses, edgeLists] = await Promise.all([
+            api.listAnalyses(),
+            api.listEdgeLists(),
+          ]);
+          const hasSharedEdgeLists = edgeLists.some((edgeList) => edgeList.analysis_id === null);
+          const analysisIdsWithEdgeLists = new Set(
+            edgeLists.flatMap((edgeList) =>
+              edgeList.analysis_id ? [edgeList.analysis_id] : [],
+            ),
+          );
+          const analysisWithEdgeList = allAnalyses.find(
+            (item) =>
+              item.status === "done" &&
+              (hasSharedEdgeLists || analysisIdsWithEdgeLists.has(item.id)),
+          );
+          if (analysisWithEdgeList) preferredDatasetId = analysisWithEdgeList.dataset_id;
+        } catch (err) {
+          setError(errorMessage(err));
+        }
+        if (cancelled) return;
         setDatasetId((current) =>
           current && list.some((dataset) => dataset.id === current)
             ? current
-            : list[0]?.id ?? "",
+            : preferredDatasetId,
         );
       } catch (err) {
         if (cancelled) return;
@@ -89,15 +111,39 @@ export default function AnalysisView({ analysis, onAnalysisChange }: Props) {
   useEffect(() => {
     if (!datasetId) return;
     let cancelled = false;
-    api
-      .listAnalyses(datasetId)
-      .then((list) => {
+
+    async function loadAnalyses() {
+      try {
+        const list = await api.listAnalyses(datasetId);
         if (cancelled) return;
         setAnalyses(list);
-        const latest = list.find((a) => a.status === "done") ?? list[0] ?? null;
-        onAnalysisChange(latest);
-      })
-      .catch((err) => setError(errorMessage(err)));
+
+        let edgeLists: EdgeList[] = [];
+        try {
+          edgeLists = await api.listEdgeLists();
+        } catch (err) {
+          if (!cancelled) setError(errorMessage(err));
+        }
+        if (cancelled) return;
+
+        const hasSharedEdgeLists = edgeLists.some((edgeList) => edgeList.analysis_id === null);
+        const analysisIdsWithEdgeLists = new Set(
+          edgeLists.flatMap((edgeList) => (edgeList.analysis_id ? [edgeList.analysis_id] : [])),
+        );
+        const latestWithEdgeList = list.find(
+          (item) =>
+            item.status === "done" &&
+            (hasSharedEdgeLists || analysisIdsWithEdgeLists.has(item.id)),
+        );
+        onAnalysisChange(
+          latestWithEdgeList ?? list.find((item) => item.status === "done") ?? list[0] ?? null,
+        );
+      } catch (err) {
+        if (!cancelled) setError(errorMessage(err));
+      }
+    }
+
+    void loadAnalyses();
     return () => {
       cancelled = true;
     };

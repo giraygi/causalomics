@@ -99,8 +99,10 @@ export const api = {
     return request<Dataset>("/datasets", { method: "POST", body: form });
   },
 
-  listAnalyses: (datasetId: string) =>
-    request<Analysis[]>(`/analyses?dataset_id=${encodeURIComponent(datasetId)}`),
+  listAnalyses: (datasetId?: string) =>
+    request<Analysis[]>(
+      datasetId ? `/analyses?dataset_id=${encodeURIComponent(datasetId)}` : "/analyses",
+    ),
 
   startAnalysis: (body: {
     dataset_id: string;
