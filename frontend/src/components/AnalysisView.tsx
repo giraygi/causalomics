@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, errorMessage } from "../api";
+import { ApiError, api, errorMessage } from "../api";
 import type { Analysis, Dataset, GeneResult } from "../types";
 import ResultsTable from "./ResultsTable";
 
@@ -12,6 +12,9 @@ const POLL_MS = 1000;
 
 export default function AnalysisView({ analysis, onAnalysisChange }: Props) {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [datasetsLoading, setDatasetsLoading] = useState(false);
+  const [datasetsError, setDatasetsError] = useState<string | null>(null);
+  const [datasetReload, setDatasetReload] = useState(0);
   const [datasetId, setDatasetId] = useState<string>("");
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
   const [referenceGroup, setReferenceGroup] = useState<string>("");
@@ -29,22 +32,58 @@ export default function AnalysisView({ analysis, onAnalysisChange }: Props) {
   const groups = dataset ? Object.keys(dataset.groups).sort() : [];
 
   const loadDatasets = useCallback(async () => {
+    setDatasetsLoading(true);
     try {
       const list = await api.listDatasets();
       setDatasets(list);
+      setDatasetsError(null);
       return list;
     } catch (err) {
-      setError(errorMessage(err));
-      return [];
+      setDatasetsError(errorMessage(err));
+      throw err;
+    } finally {
+      setDatasetsLoading(false);
     }
   }, []);
 
-  // initial load: pick the most recent dataset (e.g. the one created by the importer)
+  // Retry transient startup failures so saved datasets appear when the API becomes ready.
   useEffect(() => {
-    loadDatasets().then((list) => {
-      if (list.length > 0) setDatasetId((current) => current || list[0].id);
-    });
-  }, [loadDatasets]);
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+
+    async function load() {
+      try {
+        const list = await loadDatasets();
+        if (cancelled) return;
+        setDatasetId((current) =>
+          current && list.some((dataset) => dataset.id === current)
+            ? current
+            : list[0]?.id ?? "",
+        );
+      } catch (err) {
+        if (cancelled) return;
+        if (
+          err instanceof ApiError &&
+          err.status < 500 &&
+          err.status !== 408 &&
+          err.status !== 429
+        ) {
+          return;
+        }
+        retryTimer = setTimeout(
+          () => void load(),
+          Math.min(1000 * 2 ** attempt++, 10000),
+        );
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+    };
+  }, [datasetReload, loadDatasets]);
 
   // when the dataset changes: load its analyses and show the latest finished one
   useEffect(() => {
@@ -183,7 +222,15 @@ export default function AnalysisView({ analysis, onAnalysisChange }: Props) {
           <label>
             Dataset
             <select value={datasetId} onChange={(e) => setDatasetId(e.target.value)}>
-              {datasets.length === 0 && <option value="">No datasets yet</option>}
+              {datasets.length === 0 && (
+                <option value="">
+                  {datasetsLoading
+                    ? "Loading saved datasets…"
+                    : datasetsError
+                      ? "Could not load datasets"
+                      : "No datasets yet"}
+                </option>
+              )}
               {datasets.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name} · {d.n_genes} genes · {d.n_samples} samples
@@ -191,6 +238,18 @@ export default function AnalysisView({ analysis, onAnalysisChange }: Props) {
               ))}
             </select>
           </label>
+          {datasetsError && (
+            <p className="error" role="alert">
+              Could not load saved datasets: {datasetsError}{" "}
+              <button
+                type="button"
+                onClick={() => setDatasetReload((reload) => reload + 1)}
+                disabled={datasetsLoading}
+              >
+                Retry
+              </button>
+            </p>
+          )}
           {dataset && (
             <>
               <label>
