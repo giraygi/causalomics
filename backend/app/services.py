@@ -110,8 +110,10 @@ def build_network(
     }
 
 
-def store_edge_list(session: Session, name: str, edges_df) -> EdgeList:
-    edge_list = EdgeList(name=name, n_edges=len(edges_df))
+def store_edge_list(
+    session: Session, name: str, edges_df, analysis_id: str | None = None
+) -> EdgeList:
+    edge_list = EdgeList(name=name, analysis_id=analysis_id, n_edges=len(edges_df))
     session.add(edge_list)
     session.flush()
     session.add_all(

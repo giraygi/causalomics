@@ -33,6 +33,7 @@ export interface GeneResult {
 
 export interface EdgeList {
   id: string;
+  analysis_id: string | null;
   name: string;
   created_at: string;
   n_edges: number;

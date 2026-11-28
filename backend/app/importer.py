@@ -93,14 +93,20 @@ def main() -> None:
         dataset = resp.json()
         print(f"Dataset {dataset['id']}: {dataset['n_genes']} genes, groups {dataset['groups']}")
 
+        analysis_resp = client.post("/analyses", json={"dataset_id": dataset["id"]})
+        if analysis_resp.status_code != 202:
+            sys.exit(f"Analysis start failed: {analysis_resp.status_code} {analysis_resp.text}")
+        job = analysis_resp.json()
+
         resp = client.post(
-            "/edges", files={"file": files["edges"]}, data={"name": f"{args.dataset_name}-edges"}
+            "/edges",
+            files={"file": files["edges"]},
+            data={"name": f"{args.dataset_name}-edges", "analysis_id": job["id"]},
         )
         if resp.status_code != 201:
             sys.exit(f"Edge list upload failed: {resp.status_code} {resp.text}")
         print(f"Edge list {resp.json()['id']}: {resp.json()['n_edges']} edges")
 
-        job = client.post("/analyses", json={"dataset_id": dataset["id"]}).json()
         for _ in range(120):
             job = client.get(f"/analyses/{job['id']}").json()
             if job["status"] in ("done", "failed"):

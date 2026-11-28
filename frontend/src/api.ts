@@ -99,8 +99,10 @@ export const api = {
     return request<Dataset>("/datasets", { method: "POST", body: form });
   },
 
-  listAnalyses: (datasetId: string) =>
-    request<Analysis[]>(`/analyses?dataset_id=${encodeURIComponent(datasetId)}`),
+  listAnalyses: (datasetId?: string) =>
+    request<Analysis[]>(
+      datasetId ? `/analyses?dataset_id=${encodeURIComponent(datasetId)}` : "/analyses",
+    ),
 
   startAnalysis: (body: {
     dataset_id: string;
@@ -123,11 +125,15 @@ export const api = {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   },
 
-  listEdgeLists: () => request<EdgeList[]>("/edges"),
+  listEdgeLists: (analysisId?: string) => {
+    const query = analysisId ? `?analysis_id=${encodeURIComponent(analysisId)}` : "";
+    return request<EdgeList[]>(`/edges${query}`);
+  },
 
-  uploadEdges(file: File, name?: string): Promise<EdgeList> {
+  uploadEdges(file: File, analysisId: string, name?: string): Promise<EdgeList> {
     const form = new FormData();
     form.append("file", file);
+    form.append("analysis_id", analysisId);
     if (name) form.append("name", name);
     return request<EdgeList>("/edges", { method: "POST", body: form });
   },

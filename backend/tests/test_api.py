@@ -1,7 +1,10 @@
 import io
 
 import pytest
+from sqlalchemy import delete, func, select
 
+from app.db import SessionLocal
+from app.models import Analysis, EdgeList
 from app.simulate import simulate
 
 
@@ -104,6 +107,11 @@ def test_upload_analyse_results_network(client, auth_headers, sim_files):
     assert resp.status_code == 201, resp.text
     edge_list_id = resp.json()["id"]
 
+    listed = client.get(
+        "/api/edges", params={"analysis_id": analysis_id}, headers=auth_headers
+    ).json()
+    assert [edge_list["id"] for edge_list in listed] == [edge_list_id]
+
     network = client.get(
         f"/api/analyses/{analysis_id}/network",
         params={"edge_list_id": edge_list_id, "padj": 0.05, "min_abs_lfc": 1},
@@ -115,6 +123,92 @@ def test_upload_analyse_results_network(client, auth_headers, sim_files):
     # every edge connects two displayed (significant) genes
     assert all(e["source"] in node_ids and e["target"] in node_ids for e in network["edges"])
     assert len(network["edges"]) > 0
+
+
+def test_edge_lists_are_scoped_to_analysis(client, auth_headers, sim_files):
+    dataset = _upload_dataset(client, auth_headers, sim_files).json()
+    analysis_ids = []
+    for _ in range(2):
+        response = client.post(
+            "/api/analyses",
+            headers=auth_headers,
+            json={"dataset_id": dataset["id"], "reference_group": "control"},
+        )
+        assert response.status_code == 202, response.text
+        analysis_ids.append(response.json()["id"])
+
+    edge_lists = []
+    for analysis_id in analysis_ids:
+        response = client.post(
+            "/api/edges",
+            headers=auth_headers,
+            files={"file": sim_files["edges"]},
+            data={"name": "interactions", "analysis_id": analysis_id},
+        )
+        assert response.status_code == 201, response.text
+        edge_lists.append(response.json())
+
+    assert edge_lists[0]["id"] != edge_lists[1]["id"]
+    assert [edge_list["name"] for edge_list in edge_lists] == ["interactions", "interactions"]
+    for analysis_id, edge_list in zip(analysis_ids, edge_lists, strict=True):
+        assert edge_list["analysis_id"] == analysis_id
+        listed = client.get(
+            "/api/edges", headers=auth_headers, params={"analysis_id": analysis_id}
+        ).json()
+        assert [item["id"] for item in listed] == [edge_list["id"]]
+
+    response = client.get(
+        f"/api/analyses/{analysis_ids[1]}/network",
+        headers=auth_headers,
+        params={"edge_list_id": edge_lists[0]["id"]},
+    )
+    assert response.status_code == 404
+
+
+def test_blank_analysis_id_is_rejected(client, auth_headers, sim_files):
+    response = client.post(
+        "/api/edges",
+        headers=auth_headers,
+        files={"file": sim_files["edges"]},
+        data={"analysis_id": "   "},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "analysis_id must not be blank"
+
+    response = client.get("/api/edges", headers=auth_headers, params={"analysis_id": " "})
+    assert response.status_code == 422
+    assert response.json()["detail"] == "analysis_id must not be blank"
+
+
+def test_edge_upload_checks_analysis_before_parsing_file(client, auth_headers):
+    response = client.post(
+        "/api/edges",
+        headers=auth_headers,
+        files={"file": ("invalid.csv", b"not a valid edge list", "text/csv")},
+        data={"analysis_id": "missing"},
+    )
+    assert response.status_code == 404
+
+
+def test_deleting_analysis_cascades_to_scoped_edge_lists(client, auth_headers, sim_files):
+    dataset = _upload_dataset(client, auth_headers, sim_files).json()
+    analysis = client.post(
+        "/api/analyses",
+        headers=auth_headers,
+        json={"dataset_id": dataset["id"], "reference_group": "control"},
+    ).json()
+    response = client.post(
+        "/api/edges",
+        headers=auth_headers,
+        files={"file": sim_files["edges"]},
+        data={"name": "interactions", "analysis_id": analysis["id"]},
+    )
+    assert response.status_code == 201, response.text
+
+    with SessionLocal() as session:
+        session.execute(delete(Analysis).where(Analysis.id == analysis["id"]))
+        session.commit()
+        assert session.scalar(select(func.count()).select_from(EdgeList)) == 0
 
 
 # --------------------------------------------------------------------------- #
