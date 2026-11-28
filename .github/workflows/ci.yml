@@ -40,7 +40,7 @@ jobs:
 
           api_key = os.environ["GEMINI_API_KEY"].strip()
           host = "https://generativelanguage.googleapis.com"
-          path = "/v1beta/models/gemini-3.5-flash-lite:generateContent"
+          path = "/v1beta/models/gemini-4-hydrogen:generateContent"
           url = f"{host}{path}?key={api_key}"
 
           prompt = (
