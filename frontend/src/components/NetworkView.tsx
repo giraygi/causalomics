@@ -24,37 +24,37 @@ export default function NetworkView({ analysis, visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
 
-  async function loadEdgeLists(analysisId: string) {
+  async function loadEdgeLists(
+    analysisId: string,
+    preferredId?: string,
+    isCurrent: () => boolean = () => true,
+  ) {
     try {
       const list = await api.listEdgeLists(analysisId);
+      if (!isCurrent()) return;
       setEdgeLists(list);
-      setEdgeListId(list[0]?.id || "");
+      setEdgeListId((current) => {
+        const selectedId = preferredId ?? current;
+        return list.some((item) => item.id === selectedId) ? selectedId : list[0]?.id || "";
+      });
     } catch (err) {
-      setError(errorMessage(err));
+      if (isCurrent()) setError(errorMessage(err));
     }
   }
 
   useEffect(() => {
-    if (visible && analysis?.status === "done") {
-      setEdgeListId("");
-      let cancelled = false;
-      api
-        .listEdgeLists(analysis.id)
-        .then((list) => {
-          if (cancelled) return;
-          setEdgeLists(list);
-          setEdgeListId(list[0]?.id || "");
-        })
-        .catch((err) => {
-          if (!cancelled) setError(errorMessage(err));
-        });
-      return () => {
-        cancelled = true;
-      };
-    } else {
+    if (!visible) return;
+    if (!analysis || analysis.status !== "done") {
       setEdgeLists([]);
       setEdgeListId("");
+      return;
     }
+
+    let cancelled = false;
+    void loadEdgeLists(analysis.id, undefined, () => !cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [visible, analysis?.id, analysis?.status]);
 
   // a different analysis invalidates the drawn network
@@ -63,6 +63,9 @@ export default function NetworkView({ analysis, visible }: Props) {
     setSelected(null);
     setEdgeFile(null);
     setEdgeListName("");
+    setEdgeLists([]);
+    setEdgeListId("");
+    setError(null);
   }, [analysis?.id]);
 
   async function uploadEdges(event: FormEvent) {
@@ -76,8 +79,7 @@ export default function NetworkView({ analysis, visible }: Props) {
         analysis.id,
         edgeListName.trim() || undefined,
       );
-      await loadEdgeLists(analysis.id);
-      setEdgeListId(created.id);
+      await loadEdgeLists(analysis.id, created.id);
       (event.target as HTMLFormElement).reset();
       setEdgeFile(null);
       setEdgeListName("");
@@ -303,8 +305,7 @@ export default function NetworkView({ analysis, visible }: Props) {
         <section className="card">
           <h2>Network</h2>
           <p className="muted">
-            Upload an interaction list above. Run (or select) a finished analysis to view a
-            network.
+            Select a finished analysis in the Analysis tab to view its network.
           </p>
         </section>
       )}

@@ -107,6 +107,11 @@ def test_upload_analyse_results_network(client, auth_headers, sim_files):
     assert resp.status_code == 201, resp.text
     edge_list_id = resp.json()["id"]
 
+    listed = client.get(
+        "/api/edges", params={"analysis_id": analysis_id}, headers=auth_headers
+    ).json()
+    assert [edge_list["id"] for edge_list in listed] == [edge_list_id]
+
     network = client.get(
         f"/api/analyses/{analysis_id}/network",
         params={"edge_list_id": edge_list_id, "padj": 0.05, "min_abs_lfc": 1},
@@ -156,6 +161,31 @@ def test_edge_lists_are_scoped_to_analysis(client, auth_headers, sim_files):
         f"/api/analyses/{analysis_ids[1]}/network",
         headers=auth_headers,
         params={"edge_list_id": edge_lists[0]["id"]},
+    )
+    assert response.status_code == 404
+
+
+def test_blank_analysis_id_is_rejected(client, auth_headers, sim_files):
+    response = client.post(
+        "/api/edges",
+        headers=auth_headers,
+        files={"file": sim_files["edges"]},
+        data={"analysis_id": "   "},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "analysis_id must not be blank"
+
+    response = client.get("/api/edges", headers=auth_headers, params={"analysis_id": " "})
+    assert response.status_code == 422
+    assert response.json()["detail"] == "analysis_id must not be blank"
+
+
+def test_edge_upload_checks_analysis_before_parsing_file(client, auth_headers):
+    response = client.post(
+        "/api/edges",
+        headers=auth_headers,
+        files={"file": ("invalid.csv", b"not a valid edge list", "text/csv")},
+        data={"analysis_id": "missing"},
     )
     assert response.status_code == 404
 

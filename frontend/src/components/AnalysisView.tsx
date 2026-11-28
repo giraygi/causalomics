@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ApiError, api, errorMessage } from "../api";
-import type { Analysis, Dataset, EdgeList, GeneResult } from "../types";
+import type { Analysis, Dataset, GeneResult } from "../types";
 import ResultsTable from "./ResultsTable";
 
 interface Props {
@@ -58,24 +58,11 @@ export default function AnalysisView({ analysis, onAnalysisChange }: Props) {
         if (cancelled) return;
         let preferredDatasetId = list[0]?.id ?? "";
         try {
-          const [allAnalyses, edgeLists] = await Promise.all([
-            api.listAnalyses(),
-            api.listEdgeLists(),
-          ]);
-          const hasSharedEdgeLists = edgeLists.some((edgeList) => edgeList.analysis_id === null);
-          const analysisIdsWithEdgeLists = new Set(
-            edgeLists.flatMap((edgeList) =>
-              edgeList.analysis_id ? [edgeList.analysis_id] : [],
-            ),
-          );
-          const analysisWithEdgeList = allAnalyses.find(
-            (item) =>
-              item.status === "done" &&
-              (hasSharedEdgeLists || analysisIdsWithEdgeLists.has(item.id)),
-          );
-          if (analysisWithEdgeList) preferredDatasetId = analysisWithEdgeList.dataset_id;
+          const allAnalyses = await api.listAnalyses();
+          const latestFinished = allAnalyses.find((item) => item.status === "done");
+          if (latestFinished) preferredDatasetId = latestFinished.dataset_id;
         } catch (err) {
-          setError(errorMessage(err));
+          if (!cancelled) setError(errorMessage(err));
         }
         if (cancelled) return;
         setDatasetId((current) =>
@@ -118,26 +105,7 @@ export default function AnalysisView({ analysis, onAnalysisChange }: Props) {
         if (cancelled) return;
         setAnalyses(list);
 
-        let edgeLists: EdgeList[] = [];
-        try {
-          edgeLists = await api.listEdgeLists();
-        } catch (err) {
-          if (!cancelled) setError(errorMessage(err));
-        }
-        if (cancelled) return;
-
-        const hasSharedEdgeLists = edgeLists.some((edgeList) => edgeList.analysis_id === null);
-        const analysisIdsWithEdgeLists = new Set(
-          edgeLists.flatMap((edgeList) => (edgeList.analysis_id ? [edgeList.analysis_id] : [])),
-        );
-        const latestWithEdgeList = list.find(
-          (item) =>
-            item.status === "done" &&
-            (hasSharedEdgeLists || analysisIdsWithEdgeLists.has(item.id)),
-        );
-        onAnalysisChange(
-          latestWithEdgeList ?? list.find((item) => item.status === "done") ?? list[0] ?? null,
-        );
+        onAnalysisChange(list.find((item) => item.status === "done") ?? list[0] ?? null);
       } catch (err) {
         if (!cancelled) setError(errorMessage(err));
       }

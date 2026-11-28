@@ -73,6 +73,18 @@ def _get_or_404(session: Session, model, obj_id: str):
     return obj
 
 
+def _validated_analysis_id(session: Session, analysis_id: str | None) -> str | None:
+    if analysis_id is None:
+        return None
+    analysis_id = analysis_id.strip()
+    if not analysis_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "analysis_id must not be blank"
+        )
+    _get_or_404(session, Analysis, analysis_id)
+    return analysis_id
+
+
 # --------------------------------------------------------------------------- #
 # Datasets
 # --------------------------------------------------------------------------- #
@@ -140,13 +152,12 @@ async def upload_edges(
     name: Annotated[str | None, Form()] = None,
     analysis_id: Annotated[str | None, Form()] = None,
 ):
+    analysis_id = _validated_analysis_id(session, analysis_id)
     text = await _read_upload(file, settings)
     try:
         edges_df = load_edges(text.encode())
     except de.AnalysisInputError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from None
-    if analysis_id is not None:
-        _get_or_404(session, Analysis, analysis_id)
     return services.store_edge_list(
         session, name or file.filename or "edges", edges_df, analysis_id=analysis_id
     )
@@ -154,9 +165,9 @@ async def upload_edges(
 
 @protected.get("/edges", response_model=list[schemas.EdgeListOut], tags=["network"])
 def list_edge_lists(session: SessionDep, analysis_id: str | None = None):
+    analysis_id = _validated_analysis_id(session, analysis_id)
     query = select(EdgeList).order_by(EdgeList.created_at.desc())
     if analysis_id is not None:
-        _get_or_404(session, Analysis, analysis_id)
         query = query.where(
             or_(EdgeList.analysis_id == analysis_id, EdgeList.analysis_id.is_(None))
         )

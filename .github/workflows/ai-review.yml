@@ -8,6 +8,10 @@ permissions:
   contents: read
   pull-requests: write
 
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   ai-review:
     runs-on: ubuntu-latest
@@ -48,10 +52,23 @@ jobs:
           if not diff.strip():
               exit(0)
 
+          max_diff_chars = 500_000
+          diff_truncated = len(diff) > max_diff_chars
+          if diff_truncated:
+              diff = diff[:max_diff_chars]
+
           prompt = (
               "You are a senior software engineer reviewing a GitHub Pull Request. "
               "Provide a concise, constructive code review highlighting potential bugs, "
-              "edge cases, security issues, and clean-code improvements:\n\n" + diff
+              "edge cases, security issues, and clean-code improvements. "
+              + (
+                  "The diff was truncated due to its size; clearly state that this review "
+                  "covers only part of the changes. "
+                  if diff_truncated
+                  else ""
+              )
+              + "\n\n"
+              + diff
           )
 
           url = (
@@ -110,9 +127,23 @@ jobs:
               f"https://api.github.com/repos/{os.environ['REPO']}/issues/"
               f"{os.environ['PR_NUMBER']}/comments"
           )
-          comment_payload = json.dumps(
-              {"body": f"### 🤖 Automated AI Code Review\n\n{review}"}
-          ).encode("utf-8")
+          comment_header = "### 🤖 Automated AI Code Review\n\n"
+          comment_limit_bytes = 60_000
+          truncation_notice = "\n\n[Review truncated to fit GitHub's comment size limit.]"
+          body = comment_header + review
+          if len(body.encode("utf-8")) > comment_limit_bytes:
+              review_bytes = review.encode("utf-8")
+              available_bytes = (
+                  comment_limit_bytes
+                  - len(comment_header.encode("utf-8"))
+                  - len(truncation_notice.encode("utf-8"))
+              )
+              review = (
+                  review_bytes[:available_bytes].decode("utf-8", errors="ignore")
+                  + truncation_notice
+              )
+              body = comment_header + review
+          comment_payload = json.dumps({"body": body}).encode("utf-8")
           comment_req = urllib.request.Request(
               comment_url,
               data=comment_payload,
@@ -122,5 +153,13 @@ jobs:
                   "Content-Type": "application/json",
               },
           )
-          urllib.request.urlopen(comment_req, timeout=30).close()
+          try:
+              urllib.request.urlopen(comment_req, timeout=30).close()
+          except urllib.error.HTTPError as e:
+              print(
+                  "GitHub comment API error:",
+                  e.code,
+                  e.read().decode("utf-8", errors="replace"),
+              )
+              raise
           EOF
