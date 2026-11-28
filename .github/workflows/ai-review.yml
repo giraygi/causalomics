@@ -19,8 +19,10 @@ jobs:
 
       - name: Get PR Diff
         id: diff
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          git diff origin/${{ github.base_ref }}...HEAD > pr_diff.txt
+          git diff "origin/$BASE_REF...HEAD" > pr_diff.txt
 
       - name: Run Gemini AI Review
         env:
@@ -30,10 +32,18 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           python3 - << 'EOF'
-          import os, json, urllib.request
+          import json
+          import os
+          import urllib.error
+          import urllib.request
 
-          with open("pr_diff.txt", "r") as f:
-              diff = f.read()[:15000]
+          api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+          if not api_key:
+              print("Skipping AI review: GEMINI_API_KEY is unavailable.")
+              raise SystemExit(0)
+
+          with open("pr_diff.txt", "r", encoding="utf-8") as f:
+              diff = f.read()
 
           if not diff.strip():
               exit(0)
@@ -44,26 +54,73 @@ jobs:
               "edge cases, security issues, and clean-code improvements:\n\n" + diff
           )
 
-          url = f"https://googleapis.com{os.environ['GEMINI_API_KEY']}"
+          url = (
+              "https://generativelanguage.googleapis.com/v1beta/models/"
+              "gemini-4-hydrogen:generateContent"
+          )
           payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8")
-          req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+          req = urllib.request.Request(
+              url,
+              data=payload,
+              headers={
+                  "Content-Type": "application/json",
+                  "x-goog-api-key": api_key,
+              },
+          )
 
-          with urllib.request.urlopen(req) as resp:
-              result = json.loads(resp.read().decode("utf-8"))
-              first_candidate = result["candidates"].pop(0)
-              first_part = first_candidate["content"]["parts"].pop(0)
-              review = first_part["text"]
+          try:
+              with urllib.request.urlopen(req, timeout=90) as resp:
+                  result = json.loads(resp.read().decode("utf-8"))
+          except urllib.error.HTTPError as e:
+              print("Gemini API error:", e.read().decode("utf-8", errors="replace"))
+              raise
 
-          comment_url = f"https://github.com{os.environ['REPO']}/issues/{os.environ['PR_NUMBER']}/comments"
-          comment_payload = json.dumps({"body": f"### 🤖 Automated AI Code Review\n\n{review}"}).encode("utf-8")
+          if not isinstance(result, dict):
+              raise RuntimeError("Gemini returned an unexpected response payload.")
+          candidates = result.get("candidates")
+          if not isinstance(candidates, list) or not candidates:
+              feedback = result.get("promptFeedback", {})
+              reason = (
+                  feedback.get("blockReason", "unspecified")
+                  if isinstance(feedback, dict)
+                  else "unspecified"
+              )
+              raise RuntimeError(
+                  f"Gemini returned no review candidate (block reason: {reason})."
+              )
+          candidate = candidates[0]
+          if not isinstance(candidate, dict):
+              raise RuntimeError("Gemini returned a malformed review candidate.")
+          content = candidate.get("content", {})
+          parts = content.get("parts", []) if isinstance(content, dict) else []
+          if not isinstance(parts, list):
+              raise RuntimeError("Gemini returned malformed review parts.")
+          review = next(
+              (
+                  part["text"]
+                  for part in parts
+                  if isinstance(part, dict) and isinstance(part.get("text"), str)
+              ),
+              None,
+          )
+          if not review:
+              raise RuntimeError("Gemini returned a candidate without review text.")
+
+          comment_url = (
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/"
+              f"{os.environ['PR_NUMBER']}/comments"
+          )
+          comment_payload = json.dumps(
+              {"body": f"### 🤖 Automated AI Code Review\n\n{review}"}
+          ).encode("utf-8")
           comment_req = urllib.request.Request(
               comment_url,
               data=comment_payload,
               headers={
                   "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
                   "Accept": "application/vnd.github+json",
-                  "Content-Type": "application/json"
-              }
+                  "Content-Type": "application/json",
+              },
           )
-          urllib.request.urlopen(comment_req)
+          urllib.request.urlopen(comment_req, timeout=30).close()
           EOF

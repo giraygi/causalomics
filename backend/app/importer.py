@@ -94,7 +94,8 @@ def main() -> None:
         print(f"Dataset {dataset['id']}: {dataset['n_genes']} genes, groups {dataset['groups']}")
 
         analysis_resp = client.post("/analyses", json={"dataset_id": dataset["id"]})
-        analysis_resp.raise_for_status()
+        if analysis_resp.status_code != 202:
+            sys.exit(f"Analysis start failed: {analysis_resp.status_code} {analysis_resp.text}")
         job = analysis_resp.json()
 
         resp = client.post(

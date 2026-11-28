@@ -1,7 +1,10 @@
 import io
 
 import pytest
+from sqlalchemy import delete, func, select
 
+from app.db import SessionLocal
+from app.models import Analysis, EdgeList
 from app.simulate import simulate
 
 
@@ -155,6 +158,27 @@ def test_edge_lists_are_scoped_to_analysis(client, auth_headers, sim_files):
         params={"edge_list_id": edge_lists[0]["id"]},
     )
     assert response.status_code == 404
+
+
+def test_deleting_analysis_cascades_to_scoped_edge_lists(client, auth_headers, sim_files):
+    dataset = _upload_dataset(client, auth_headers, sim_files).json()
+    analysis = client.post(
+        "/api/analyses",
+        headers=auth_headers,
+        json={"dataset_id": dataset["id"], "reference_group": "control"},
+    ).json()
+    response = client.post(
+        "/api/edges",
+        headers=auth_headers,
+        files={"file": sim_files["edges"]},
+        data={"name": "interactions", "analysis_id": analysis["id"]},
+    )
+    assert response.status_code == 201, response.text
+
+    with SessionLocal() as session:
+        session.execute(delete(Analysis).where(Analysis.id == analysis["id"]))
+        session.commit()
+        assert session.scalar(select(func.count()).select_from(EdgeList)) == 0
 
 
 # --------------------------------------------------------------------------- #
