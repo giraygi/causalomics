@@ -30,7 +30,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           python3 - << 'EOF'
-          import os, json, urllib.request
+          import os, json, urllib.request, urllib.error
 
           with open("pr_diff.txt", "r") as f:
               diff = f.read()[:15000]
@@ -39,8 +39,8 @@ jobs:
               exit(0)
 
           api_key = os.environ["GEMINI_API_KEY"].strip()
-          host = "https://googleapis.com"
-          path = "/v1beta/models/gemini-2.5-flash:generateContent"
+          host = "https://generativelanguage.googleapis.com"
+          path = "/v1beta/models/gemini-3.5-flash-lite:generateContent"
           url = f"{host}{path}?key={api_key}"
 
           prompt = (
@@ -59,16 +59,20 @@ jobs:
               headers={"Content-Type": "application/json"}
           )
 
-          with urllib.request.urlopen(req) as resp:
-              result = json.loads(resp.read().decode("utf-8"))
-              first_candidate = result["candidates"].pop(0)
-              first_part = first_candidate["content"]["parts"].pop(0)
-              review = first_part["text"]
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  result = json.loads(resp.read().decode("utf-8"))
+                  first_candidate = result["candidates"].pop(0)
+                  first_part = first_candidate["content"]["parts"].pop(0)
+                  review = first_part["text"]
+          except urllib.error.HTTPError as e:
+              print("API Error Body:", e.read().decode("utf-8"))
+              raise
 
           repo = os.environ["REPO"].strip()
           pr_num = os.environ["PR_NUMBER"].strip()
           gh_token = os.environ["GH_TOKEN"].strip()
-          comment_url = f"https://github.com{repo}/issues/{pr_num}/comments"
+          comment_url = f"https://api.github.com/repos/{repo}/issues/{pr_num}/comments"
 
           comment_payload = json.dumps({
               "body": f"### 🤖 Automated AI Code Review\n\n{review}"
