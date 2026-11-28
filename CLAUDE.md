@@ -3,9 +3,12 @@
 This repository is a complete first draft that has NOT been run yet. Goal: make it work
 end-to-end without changing the architecture, then polish.
 
+## Handling Ambiguity & Decisions
+* **Minor/Reversible Choices:** Do not stop to ask. Pick the simplest, most idiomatic option that matches the existing codebase and log it in `DECISIONS.md` (`[Date] Decision — One-line reason`).
+* **Major/Breaking Choices:** Stop and ask before writing code if the ambiguity affects database schemas, public APIs, security, third-party dependencies, or core architecture. Present 2–3 concrete options with a recommended default.
+* **Keep `DECISIONS.md` focused:** Only log choices that future developers or sessions need to know to maintain consistency (skip trivial variable naming or minor formatting choices).
+
 ## Working mode
-- Do not ask questions. For ambiguous points choose the simplest reasonable option and
-  record it in DECISIONS.md (decision + one-line reason).
 - Keep PROGRESS.md as a checklist. Commit after each step (conventional commits). Never `git push`.
 - A step is done only when its check passes; show the command output as evidence.
 - If a problem is not solved after 3 attempts, write it under "BLOCKED" in DECISIONS.md and move on.
